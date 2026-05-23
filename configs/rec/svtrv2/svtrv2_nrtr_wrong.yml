@@ -1,0 +1,162 @@
+Global:
+  device: gpu
+  epoch_num: 20
+  log_smooth_window: 20
+  print_batch_step: 10
+  output_dir: ./output/svtrv2/svtrv2_nrtr_wrong/
+  save_epoch_step: [15, 1]
+  eval_epoch_step: [0, 1]
+  eval_batch_step: [0, 2000]
+  cal_metric_during_train: True
+  pretrained_model: ./output/svtrv2/svtrv2_nrtr_wrong/best.pth
+  checkpoints: ./output/svtrv2/svtrv2_nrtr_wrong/latest.pth
+  use_tensorboard: False
+  infer_img: ./samples/sample_1_.jpg
+  character_dict_path: &character_dict_path ./tools/utils/final_train_dict_sorted.txt
+  max_text_length: &max_text_length 25
+  use_space_char: &use_space_char True
+  save_res_path: ./output/svtrv2/predicts_svtrv2_nrtr_wrong.txt
+  use_amp: True
+
+Optimizer:
+  name: AdamW
+  lr: 0.00065
+  weight_decay: 0.05
+  filter_bias_and_bn: True
+
+LRScheduler:
+  name: OneCycleLR
+  warmup_epoch: 1.5
+  cycle_momentum: False
+
+Architecture:
+  model_type: rec
+  algorithm: NRTR
+  in_channels: 3
+  Transform:
+  Encoder:
+    name: SVTRv2LNConvTwo33
+    use_pos_embed: False
+    out_channels: 256
+    dims: [128, 256, 384]
+    depths: [6, 6, 6]
+    num_heads: [4, 8, 12]
+    mixer: [['Conv','Conv','Conv','Conv','Conv','Conv'],['Conv','Conv','FGlobal','Global','Global','Global'],['Global','Global','Global','Global','Global','Global']]
+    local_k: [[5, 5], [5, 5], [-1, -1]]
+    sub_k: [[1, 1], [2, 1], [-1, -1]]
+    last_stage: False
+    feat2d: False
+
+  Decoder:
+    name: NRTRDecoder
+    num_encoder_layers: -1
+    beam_size: 0
+    num_decoder_layers: 2
+    nhead: 12
+    max_len: *max_text_length
+
+Loss:
+  name: ARLoss
+
+PostProcess:
+  name: ARLabelDecode
+  character_dict_path: *character_dict_path
+  use_space_char: *use_space_char
+
+Metric:
+  name: RecMLTMetric
+  main_indicator: acc
+  ignore_space: False
+  # is_filter: False
+
+Train:
+  dataset:
+    name: RatioDataSetTVResize
+    ds_width: True
+    padding: False
+    data_dir_list: [
+      #英文训练集
+      "/data/yxs/wh_lmdb/Union14M-L-LMDB-Filtered/filter_train_challenging",
+      "/data/yxs/wh_lmdb/Union14M-L-LMDB-Filtered/filter_train_easy",
+      "/data/yxs/wh_lmdb/Union14M-L-LMDB-Filtered/filter_train_hard",
+      "/data/yxs/wh_lmdb/Union14M-L-LMDB-Filtered/filter_train_medium",
+      "/data/yxs/wh_lmdb/Union14M-L-LMDB-Filtered/filter_train_normal",
+      #中文训练集
+      "/data/yxs/wh_lmdb/benchmark_bctr/train/document_train", 
+        "/data/yxs/wh_lmdb/benchmark_bctr/train/handwriting_train", 
+        "/data/yxs/wh_lmdb/benchmark_bctr/train/scene_train", 
+        "/data/yxs/wh_lmdb/benchmark_bctr/train/web_train", 
+    ]
+    transforms:
+      - DecodeImagePIL:
+          img_mode: RGB
+      - PARSeqAugPIL:
+      - ARLabelEncode:
+          character_dict_path: *character_dict_path
+          use_space_char: *use_space_char
+          max_text_length: *max_text_length
+      - KeepKeys:
+          keep_keys: ['image', 'label', 'length']
+  sampler:
+    name: RatioSampler
+    scales: [[128, 32]] # w, h
+    first_bs: &bs 128
+    fix_bs: false
+    divided_factor: [4, 16] # w, h
+    is_training: True
+  loader:
+    shuffle: True
+    batch_size_per_card: *bs
+    drop_last: True
+    max_ratio: 12
+    num_workers: 4 
+
+Eval:
+  dataset:
+    name: RatioDataSetTVResize
+    ds_width: True
+    padding: False
+    data_dir_list: [
+      # 英文测试集
+        "/data/yxs/wh_lmdb/parseq-test/IC13_857",
+        "/data/yxs/wh_lmdb/parseq-test/CUTE80",
+        "/data/yxs/wh_lmdb/parseq-test/IC15_1811",
+        "/data/yxs/wh_lmdb/parseq-test/IIIT5k",
+        "/data/yxs/wh_lmdb/parseq-test/SVT",
+        "/data/yxs/wh_lmdb/parseq-test/SVTP",
+        # "/data/yxs/wh_lmdb/u14m-test/artistic",
+        # "/data/yxs/wh_lmdb/u14m-test/contextless",
+        # "/data/yxs/wh_lmdb/u14m-test/curve",
+        # "/data/yxs/wh_lmdb/u14m-test/general",
+        # "/data/yxs/wh_lmdb/u14m-test/multi_oriented",
+        # "/data/yxs/wh_lmdb/u14m-test/multi_words",
+        # "/data/yxs/wh_lmdb/u14m-test/salient",
+        # 中文测试集
+        "/data/yxs/wh_lmdb/benchmark_bctr/test/document_test",
+        "/data/yxs/wh_lmdb/benchmark_bctr/test/handwriting_test",
+        "/data/yxs/wh_lmdb/benchmark_bctr/test/scene_test",
+        "/data/yxs/wh_lmdb/benchmark_bctr/test/scene_test_1k",
+        "/data/yxs/wh_lmdb/benchmark_bctr/test/web_test",
+      ]
+    transforms:
+      - DecodeImagePIL:
+          img_mode: RGB
+      - ARLabelEncode:
+          character_dict_path: *character_dict_path
+          use_space_char: *use_space_char
+          max_text_length: *max_text_length
+      - KeepKeys:
+          keep_keys: ['image', 'label', 'length']
+  sampler:
+    name: RatioSampler
+    scales: [[128, 32]]
+    first_bs: 128 
+    fix_bs: false
+    divided_factor: [4, 16]
+    is_training: False
+  loader:
+    shuffle: False
+    drop_last: False
+    batch_size_per_card: *bs
+    max_ratio: 12
+    num_workers: 4

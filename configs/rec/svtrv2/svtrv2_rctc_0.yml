@@ -1,0 +1,165 @@
+Global:
+  device: gpu
+  epoch_num: 20
+  log_smooth_window: 20
+  print_batch_step: 10
+  output_dir: ./output/svtrv2/svtrv2_rctc_0/
+  save_epoch_step: [15, 1]
+  # evaluation is run every 2000 iterations
+  eval_epoch_step: [0, 1]
+  eval_batch_step: [0, 1000]
+  cal_metric_during_train: True
+  pretrained_model: ./output/svtrv2/svtrv2_rctc_0/best.pth
+  checkpoints: ./output/svtrv2/svtrv2_rctc_0/latest.pth
+  use_tensorboard: false
+  infer_img:
+  # for data or label process
+  character_dict_path: &character_dict_path ./tools/utils/final_train_dict_sorted.txt
+  max_text_length: &max_text_length 25
+  use_space_char: &use_space_char False
+  save_res_path: ./output/svtrv2/svtrv2_rctc_0/predicts_svtrv2_rctc.txt
+  use_amp: True
+
+Optimizer:
+  name: AdamW
+  lr: 0.00065 # for 4gpus bs256/gpu
+  weight_decay: 0.05
+  filter_bias_and_bn: True
+
+LRScheduler:
+  name: OneCycleLR
+  warmup_epoch: 1.5 # pct_start 0.075*20 = 1.5ep
+  cycle_momentum: False
+
+Architecture:
+  model_type: rec
+  algorithm: SVTRv2
+  Transform:
+  Encoder:
+    name: SVTRv2LNConvTwo33
+    use_pos_embed: False
+    dims: [128, 256, 384]
+    depths: [6, 6, 6]
+    num_heads: [4, 8, 12]
+    mixer: [['Conv','Conv','Conv','Conv','Conv','Conv'],['Conv','Conv','FGlobal','Global','Global','Global'],['Global','Global','Global','Global','Global','Global']]
+    local_k: [[5, 5], [5, 5], [-1, -1]]
+    sub_k: [[1, 1], [2, 1], [-1, -1]]
+    last_stage: false
+    feat2d: True
+  Decoder:
+    name: RCTCDecoder
+
+Loss:
+  name: CTCLoss
+  zero_infinity: True
+
+PostProcess:
+  name: CTCLabelDecode
+
+Metric:
+  name: RecMLTMetric
+  main_indicator: acc
+  ignore_space: False
+  # is_filter: False
+
+Train:
+  dataset:
+    name: RatioDataSetTVResize
+    ds_width: True
+    padding: False
+    data_dir_list: [
+        # 英文训练集
+        "/data/yxs/wh_lmdb/Union14M-L-LMDB-Filtered/filter_train_challenging",
+        "/data/yxs/wh_lmdb/Union14M-L-LMDB-Filtered/filter_train_easy",
+        "/data/yxs/wh_lmdb/Union14M-L-LMDB-Filtered/filter_train_hard",
+        "/data/yxs/wh_lmdb/Union14M-L-LMDB-Filtered/filter_train_medium",
+        "/data/yxs/wh_lmdb/Union14M-L-LMDB-Filtered/filter_train_normal",
+        #英文补充训练集（伪标签）
+        "/data/yxs/ygh/labeled/english/book32_lmdb",
+        "/data/yxs/ygh/labeled/english/cc_lmdb",
+        "/data/yxs/ygh/labeled/english/openvino_lmdb",
+        # 中文训练集
+        "/data/yxs/wh_lmdb/BCTR_Filter/train/document_train", 
+        "/data/yxs/wh_lmdb/BCTR_Filter/train/handwriting_train", 
+        "/data/yxs/wh_lmdb/BCTR_Filter/train/scene_train", 
+        "/data/yxs/wh_lmdb/BCTR_Filter/train/web_train", 
+        #中文补充训练集（伪标签）
+        "/data/yxs/ygh/labeled/chinese/hand",
+        "/data/yxs/ygh/labeled/chinese/subdir1",
+        "/data/yxs/ygh/labeled/chinese/subdir2",
+    ]
+    ratio_list: [1.0, 1.0, 1.0, 1.0, 1.0, 0.25, 0.25, 0.25, 1.0, 1.0, 1.0, 1.0, 0.25, 0.25, 0.25]
+    transforms:
+      - DecodeImagePIL: # load image
+          img_mode: RGB
+      - PARSeqAugPIL:
+      - CTCLabelEncode: # Class handling label
+          character_dict_path: *character_dict_path
+          use_space_char: *use_space_char
+          max_text_length: *max_text_length
+      - KeepKeys:
+          keep_keys: ['image', 'label', 'length']
+  sampler:
+    name: RatioSampler
+    scales: [[128, 32]] # w, h
+    # divide_factor: to ensure the width and height dimensions can be devided by downsampling multiple
+    first_bs: &bs 256
+    fix_bs: false
+    divided_factor: [4, 16] # w, h
+    is_training: True
+  loader:
+    shuffle: True
+    batch_size_per_card: *bs
+    drop_last: True
+    max_ratio: 4
+    num_workers: 4
+
+Eval:
+  dataset:
+    name: RatioDataSetTVResize
+    ds_width: True
+    padding: False
+    data_dir_list: [
+      # 英文测试集
+        "/data/yxs/wh_lmdb/parseq-test/IC13_857",
+        "/data/yxs/wh_lmdb/parseq-test/CUTE80",
+        "/data/yxs/wh_lmdb/parseq-test/IC15_1811",
+        "/data/yxs/wh_lmdb/parseq-test/IIIT5k",
+        "/data/yxs/wh_lmdb/parseq-test/SVT",
+        "/data/yxs/wh_lmdb/parseq-test/SVTP",
+        # "/data/yxs/wh_lmdb/u14m-test/artistic",
+        # "/data/yxs/wh_lmdb/u14m-test/contextless",
+        # "/data/yxs/wh_lmdb/u14m-test/curve",
+        # "/data/yxs/wh_lmdb/u14m-test/general",
+        # "/data/yxs/wh_lmdb/u14m-test/multi_oriented",
+        # "/data/yxs/wh_lmdb/u14m-test/multi_words",
+        # "/data/yxs/wh_lmdb/u14m-test/salient",
+        # 中文测试集
+        # "/data/yxs/wh_lmdb/BCTR_Filter/test/document_test",
+        # "/data/yxs/wh_lmdb/BCTR_Filter/test/handwriting_test",
+        # "/data/yxs/wh_lmdb/BCTR_Filter/test/scene_test",
+        # "/data/yxs/wh_lmdb/BCTR_Filter/test/web_test",
+      ]
+    transforms:
+      - DecodeImagePIL: # load image
+          img_mode: RGB
+      - CTCLabelEncode: # Class handling label
+          character_dict_path: *character_dict_path
+          use_space_char: *use_space_char
+          max_text_length: *max_text_length
+      - KeepKeys:
+          keep_keys: ['image', 'label', 'length']
+  sampler:
+    name: RatioSampler
+    scales: [[128, 32]] # w, h
+    # divide_factor: to ensure the width and height dimensions can be devided by downsampling multiple
+    first_bs: 256
+    fix_bs: false
+    divided_factor: [4, 16] # w, h
+    is_training: False
+  loader:
+    shuffle: False
+    drop_last: False
+    batch_size_per_card: *bs
+    max_ratio: 4
+    num_workers: 4
