@@ -12,7 +12,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.launch --nproc_
 ## 2.为无标注数据集打标  
 无标注数据集：https://www.modelscope.cn/datasets/yuguohao/STR_Unlabel
 ```
-CUDA_VISIBLE_DEVICES=0 python tools/label_rec_all_en.py --c configs/rec/svtrv2/svtrv2_nrtr.yml
+CUDA_VISIBLE_DEVICES=0 python tools/label_rec.py --c configs/rec/svtrv2/svtrv2_nrtr.yml
 ```
 生成伪标签数据集：https://www.modelscope.cn/datasets/yuguohao/STR_Labeled
 ## 3.SVTRv2-CTC的重训练  
